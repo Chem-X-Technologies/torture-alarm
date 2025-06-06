@@ -23,7 +23,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.chemicalx.torturealarm"
     },
     "web": {
       "bundler": "metro",
@@ -35,6 +36,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "2044d843-3a5b-4392-80ac-b0e53d1d9d4d"
+      }
+    },
+    "owner": "chemical-x"
   }
 }
