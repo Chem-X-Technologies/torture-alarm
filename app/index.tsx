@@ -163,7 +163,7 @@ export default function Screen() {
   return (
     <ImageBackground
       className="flex-1 justify-center items-center p-6"
-      source={require('~/assets/images/appstore.png')}
+      source={require('~/assets/images/yoshiniku.png')}
       resizeMode="repeat"
     >
       <Card className="w-full max-w-sm rounded-2xl pt-6 bg-card/80">
