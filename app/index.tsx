@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { FlatList, ImageBackground, Platform, View } from 'react-native';
+import { FlatList, ImageBackground, View } from 'react-native';
 import { Button } from '~/components/ui/button';
 import {
   Card,
@@ -9,30 +9,34 @@ import {
   CardTitle,
 } from '~/components/ui/card';
 import { Text } from '~/components/ui/text';
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import * as Calendar from 'expo-calendar';
 import { toast } from 'sonner-native';
 import { cn } from '~/lib/utils';
 import storageService from '~/lib/services/storageService';
 import { Input } from '~/components/ui/input';
+import Settings from '~/lib/icons/Settings';
+import { Link, useFocusEffect } from 'expo-router';
+import TortureAlarmConfig from '~/lib/types/tortureAlarmConfig';
+import settingsService from '~/lib/services/settingsService';
 
 export default function Screen() {
   const [calendarId, setCalendarId] = useState('');
   const [calendarEmail, setCalendarEmail] = useState('');
   const [alarms, setAlarms] = useState<TortureAlarm[]>([]);
   const [isEventCreated, setIsEventCreated] = useState(false);
+  const [alarmConfig, setAlarmConfig] = useState<TortureAlarmConfig>({
+    firstAlarmMin: 0,
+    firstAlarmMax: 0,
+    lastAlarmMin: 0,
+    lastAlarmMax: 0,
+    intervalMin: 0,
+    intervalMax: 0,
+  });
 
   const handleSetAlarms = async () => {
-    const alarmDates = generateAlarms();
-    console.log(
-      'Generated alarm dates:',
-      alarmDates.map((date) =>
-        date.toLocaleTimeString('en-US', {
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      )
-    );
+    const alarmDates = generateAlarms(alarmConfig);
+
     setAlarms(
       alarmDates.map((date) => ({
         time: date,
@@ -145,20 +149,57 @@ export default function Screen() {
       });
   };
 
-  useEffect(() => {
-    console.log('Checking for existing torture calendar...');
-    (async () => {
-      const { status } = await Calendar.requestCalendarPermissionsAsync();
-      if (status === 'granted') {
-        storageService.getData(CALENDAR_ID).then((calendarId) => {
-          if (calendarId) {
-            setCalendarId(calendarId);
-            checkIfEventAlreadyCreated(calendarId);
-          }
-        });
+  const handleSetNewAlarms = async () => {
+    const startDate = new Date();
+    startDate.setHours(0, 0, 0, 0);
+
+    const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+
+    try {
+      const calendarEvents = await Calendar.getEventsAsync(
+        [calendarId],
+        startDate,
+        endDate
+      );
+      const tortureEvents = calendarEvents.filter(
+        (event) => event.title === EVENT_TITLE
+      );
+
+      for (const tortureEvent of tortureEvents) {
+        await Calendar.deleteEventAsync(tortureEvent.id);
       }
-    })();
-  }, []);
+
+      handleSetAlarms();
+    } catch (error) {
+      console.error('Error setting new alarms:', error);
+    }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        const { status } = await Calendar.requestCalendarPermissionsAsync();
+        if (status === 'granted') {
+          Promise.all([
+            storageService.getData(CALENDAR_ID),
+            settingsService.getAlarmConfig(),
+          ])
+            .then(([calendarId, settingsAlarmConfig]) => {
+              if (calendarId) {
+                setCalendarId(calendarId);
+                checkIfEventAlreadyCreated(calendarId);
+              }
+              setAlarmConfig(settingsAlarmConfig);
+            })
+            .catch((error) => {
+              console.error('Error retrieving stored data:', error);
+              toast.error('Failed to retrieve stored data. Please try again.');
+            });
+        }
+      })();
+    }, [])
+  );
 
   return (
     <ImageBackground
@@ -166,7 +207,15 @@ export default function Screen() {
       source={require('~/assets/images/yoshiniku.png')}
       resizeMode="repeat"
     >
-      <Card className="w-full max-w-sm rounded-2xl pt-6 bg-card/80">
+      <Card className="w-full max-w-sm rounded-2xl pt-6 bg-card/80 relative">
+        <Link href="/settings" asChild>
+          <Button
+            size="icon"
+            className="bg-transparent h-[30px] w-[30px] absolute top-2 right-2"
+          >
+            <Settings size={20} fill="white" />
+          </Button>
+        </Link>
         <CardHeader className="items-center">
           <CardTitle className="pb-2 text-center font-bold">
             Torture of the Day 📢
@@ -206,32 +255,43 @@ export default function Screen() {
             />
           )}
         </CardContent>
-        <CardFooter className="flex-col gap-3">
-          {!!calendarId ? (
-            !isEventCreated ? (
-              <Button
-                className="shadow shadow-foreground/5"
-                onPress={handleSetAlarms}
-              >
-                <Text>Set Alarms</Text>
-              </Button>
+        <CardFooter className="justify-center">
+          <View className="flex-col  gap-3 max-w-[200px] items-stretch">
+            {!!calendarId ? (
+              !isEventCreated ? (
+                <Button
+                  className="shadow shadow-foreground/5"
+                  onPress={handleSetAlarms}
+                >
+                  <Text>Set Alarms</Text>
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    className="shadow shadow-foreground/5"
+                    onPress={handleRefresh}
+                  >
+                    <Text>Refresh</Text>
+                  </Button>
+                  <Button
+                    className="shadow shadow-foreground/5"
+                    onPress={handleSetNewAlarms}
+                    variant="secondary"
+                  >
+                    <Text>Set new alarms</Text>
+                  </Button>
+                </>
+              )
             ) : (
               <Button
                 className="shadow shadow-foreground/5"
-                onPress={handleRefresh}
+                onPress={handleSubmitEmail}
+                disabled={!calendarEmail}
               >
-                <Text>Refresh</Text>
+                <Text>Submit</Text>
               </Button>
-            )
-          ) : (
-            <Button
-              className="shadow shadow-foreground/5"
-              onPress={handleSubmitEmail}
-              disabled={!calendarEmail}
-            >
-              <Text>Submit</Text>
-            </Button>
-          )}
+            )}
+          </View>
         </CardFooter>
       </Card>
     </ImageBackground>
@@ -288,7 +348,14 @@ const baseEvents: TortureEvent[] = [
   },
 ];
 
-const generateAlarms = (): Date[] => {
+const generateAlarms = (config: TortureAlarmConfig): Date[] => {
+  const firstAlarmMin = config.firstAlarmMin;
+  const firstAlarmMax = config.firstAlarmMax;
+  const lastAlarmMin = config.lastAlarmMin;
+  const lastAlarmMax = config.lastAlarmMax;
+  const intervalMin = config.intervalMin;
+  const intervalMax = config.intervalMax;
+
   // Hardcode start time to 3pm today
   const start = baseStartDate;
 
@@ -301,11 +368,15 @@ const generateAlarms = (): Date[] => {
   // Generate 16 alarm times
   const alarmTimes: Date[] = [];
 
-  // First alarm should be 24-33 minutes after start
-  const firstAlarmOffset = Math.floor(Math.random() * 10) + 24; // Random between 24-33
+  // First alarm should be firstAlarmMin-firstAlarmMax minutes after start
+  const firstAlarmOffset =
+    Math.floor(Math.random() * (firstAlarmMax - firstAlarmMin + 1)) +
+    firstAlarmMin;
 
-  // Last alarm should be 1-10 minutes before end
-  const endBuffer = Math.floor(Math.random() * 10) + 1; // Random between 1-10
+  // Last alarm should be lastAlarmMin-lastAlarmMax minutes before end
+  const endBuffer =
+    Math.floor(Math.random() * (lastAlarmMax - lastAlarmMin + 1)) +
+    lastAlarmMin;
 
   // Calculate the remaining time available for the 14 middle alarms
   const remainingMinutes = totalMinutes - firstAlarmOffset - endBuffer;
@@ -314,12 +385,19 @@ const generateAlarms = (): Date[] => {
   const averageGap = remainingMinutes / 15;
 
   // Check if we have enough time for all alarms with required intervals
-  if (averageGap < 24) {
+  if (averageGap < intervalMin) {
     console.warn(
-      'Time span too short for 16 alarms with 24-33 minute intervals'
+      `Time span too short for 16 alarms with ${intervalMin}-${intervalMax} minute intervals`
     );
     // Return whatever alarms we can fit while maintaining minimum interval
-    return generateMinimalAlarms();
+    return generateMinimalAlarms({
+      intervalMin,
+      intervalMax,
+      firstAlarmMin,
+      firstAlarmMax,
+      lastAlarmMin,
+      lastAlarmMax,
+    });
   }
 
   // Create first alarm
@@ -328,17 +406,18 @@ const generateAlarms = (): Date[] => {
 
   // Create middle 14 alarms
   for (let i = 1; i < 15; i++) {
-    // Generate a random interval between 24-33 minutes
-    const interval = Math.floor(Math.random() * 10) + 24; // Random between 24-33
+    // Generate a random interval between intervalMin-intervalMax minutes
+    const interval =
+      Math.floor(Math.random() * (intervalMax - intervalMin + 1)) + intervalMin;
     currentTime = new Date(currentTime.getTime() + interval * 60 * 1000);
 
     // Safety check - ensure we're not getting too close to the end
     const minutesLeft = (end.getTime() - currentTime.getTime()) / (1000 * 60);
-    if (minutesLeft < (16 - i) * 24) {
+    if (minutesLeft < (16 - i) * intervalMin) {
       // Not enough time left for remaining alarms with minimum interval
       // Adjust the spacing to fit the remaining alarms
       const adjustedInterval = (minutesLeft - endBuffer) / (16 - i);
-      if (adjustedInterval < 24) {
+      if (adjustedInterval < intervalMin) {
         console.warn(
           'Adjusting alarm intervals to fit within time constraints'
         );
@@ -347,7 +426,7 @@ const generateAlarms = (): Date[] => {
       // Recalculate currentTime with adjusted interval
       currentTime = new Date(
         alarmTimes[alarmTimes.length - 1].getTime() +
-          Math.max(24, adjustedInterval) * 60 * 1000
+          Math.max(intervalMin, adjustedInterval) * 60 * 1000
       );
     }
 
@@ -361,26 +440,35 @@ const generateAlarms = (): Date[] => {
 };
 
 // Helper function for when time span is too short
-const generateMinimalAlarms = (): Date[] => {
+const generateMinimalAlarms = (config?: TortureAlarmConfig): Date[] => {
+  // Default configuration values
+  const intervalMin = config?.intervalMin ?? 24;
+  const firstAlarmMin = config?.firstAlarmMin ?? 24;
+
   // Hardcode start time to 3pm today
-  const start = new Date();
-  start.setHours(15, 0, 0, 0);
+  const start = baseStartDate;
 
   // Hardcode end time to 11pm today
-  const end = new Date();
-  end.setHours(23, 0, 0, 0);
+  const end = generateDate(23);
 
   const alarms: Date[] = [];
-  let currentTime = new Date(start.getTime());
 
-  // Use minimum intervals of 24 minutes until we can't fit any more
+  // Start with first alarm offset
+  let currentTime = new Date(start.getTime() + firstAlarmMin * 60 * 1000);
+
+  // Use minimum intervals until we can't fit any more
   while (true) {
-    currentTime = new Date(currentTime.getTime() + 24 * 60 * 1000);
+    // Add the current alarm
+    alarms.push(new Date(currentTime));
+
+    // Calculate next alarm time
+    currentTime = new Date(currentTime.getTime() + intervalMin * 60 * 1000);
+
     // Stop if we're less than 1 minute from the end
     if ((end.getTime() - currentTime.getTime()) / (1000 * 60) < 1) {
       break;
     }
-    alarms.push(new Date(currentTime));
+
     // Stop if we have 16 alarms
     if (alarms.length >= 16) {
       break;
